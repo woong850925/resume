@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>프로필</title>
+<style>
+  :root { --bg:#e9ecef; --bar:#2b2f36; --btn:#4c6ef5; --btn-h:#3b5bdb; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); font-family:-apple-system,"Malgun Gothic","Apple SD Gothic Neo",sans-serif; }
+  #bar { position:fixed; top:0; left:0; right:0; height:52px; background:var(--bar);
+         display:flex; align-items:center; gap:8px; padding:0 10px; z-index:10; }
+  #bar button, #bar label { background:var(--btn); color:#fff; border:0; border-radius:6px;
+         padding:8px 14px; font-size:15px; cursor:pointer; }
+  #bar button:hover, #bar label:hover { background:var(--btn-h); }
+  #bar button:disabled { background:#666; cursor:default; }
+  #bar label.pick { background:#555; margin-left:auto; }
+  #bar input { display:none; }
+  #pages { padding:64px 8px 20px; display:flex; flex-direction:column; align-items:center; gap:10px; }
+  canvas { max-width:100%; height:auto !important; background:#fff; box-shadow:0 1px 6px rgba(0,0,0,.25); }
+  #msg { text-align:center; color:#555; padding:90px 20px; font-size:16px; line-height:1.6; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <button id="printBtn" disabled>🖨 인쇄하기</button>
+  <button id="saveBtn" disabled>💾 저장하기</button>
+</div>
+<div id="pages"><div id="msg">PDF를 불러오는 중입니다...</div></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+  // 같은 폴더의 PDF 기본 파일명 (주소 뒤에 ?file=이름.pdf 를 붙이면 그 파일을 엽니다)
+  const DEFAULT_FILE = "2600.pdf";
+
+  const pagesEl = document.getElementById("pages");
+  const printBtn = document.getElementById("printBtn");
+  const saveBtn = document.getElementById("saveBtn");
+  let blobUrl = null, fileName = "document.pdf";
+
+  function showMsg(t) { pagesEl.innerHTML = '<div id="msg">' + t + "</div>"; }
+
+  async function render(buffer) {
+    pagesEl.innerHTML = "";
+    const pdf = await pdfjsLib.getDocument({ data: buffer.slice(0) }).promise;
+    const scale = Math.min(2, (window.devicePixelRatio || 1) * 1.3);
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const vp = page.getViewport({ scale: scale });
+      const c = document.createElement("canvas");
+      c.width = vp.width; c.height = vp.height;
+      c.style.width = Math.min(900, vp.width / scale * 1.3) + "px";
+      pagesEl.appendChild(c);
+      await page.render({ canvasContext: c.getContext("2d"), viewport: vp }).promise;
+    }
+  }
+
+  async function load(buffer, name) {
+    if (blobUrl) URL.revokeObjectURL(blobUrl);
+    blobUrl = URL.createObjectURL(new Blob([buffer], { type: "application/pdf" }));
+    fileName = name || "document.pdf";
+    document.title = fileName;
+    printBtn.disabled = saveBtn.disabled = false;
+    try { await render(buffer); }
+    catch (e) { showMsg("PDF를 표시하지 못했습니다. 다른 파일을 열어 보세요."); }
+  }
+
+  async function loadFromUrl(url) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error();
+      const name = decodeURIComponent(url.split("/").pop().split("?")[0]);
+      await load(await res.arrayBuffer(), name);
+    } catch (e) {
+      showMsg("PDF를 찾을 수 없습니다.<br>잠시 후 다시 시도해 주세요.");
+    }
+  }
+
+  saveBtn.addEventListener("click", () => {
+    const a = document.createElement("a");
+    a.href = blobUrl; a.download = fileName;
+    document.body.appendChild(a); a.click(); a.remove();
+  });
+
+  printBtn.addEventListener("click", () => {
+    const iframe = document.createElement("iframe");
+    iframe.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;";
+    iframe.src = blobUrl;
+    iframe.onload = () => {
+      try { iframe.contentWindow.focus(); iframe.contentWindow.print(); }
+      catch (e) { window.open(blobUrl, "_blank"); }
+    };
+    document.body.appendChild(iframe);
+    setTimeout(() => iframe.remove(), 60000);
+  });
+
+  const param = new URLSearchParams(location.search).get("file");
+  loadFromUrl(param || DEFAULT_FILE);
+</script>
+</body>
+</html>
